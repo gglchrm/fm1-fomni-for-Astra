@@ -1,61 +1,41 @@
 # My version for Astra. Happy Birthday, daughter! <3
 
 🐼 What's new in this fork
-
-    Dancing panda (Kita) — 4 sprite frames, animation triggers on each string strum (one press = next frame).
-
-    Forest background — bamboo, mountains, and grass overlay (BG_FOREST, 240×144). Transparent pixels (sky) are skipped.
-
-    Gradient sky — smooth blend from a light top color to the current chord color.
-
-    Chord-reactive background colors — 11 bright pastel shades (CHORD_BG). Transitions “through white” (snap to white → fade to chord color) to avoid muddy mixing.
-
-    Stars in the sky — 32 randomly placed stars (deterministic PRNG). Each string lights two stars; stars fade out slowly.
-
-    Layered rendering — correct draw order: sky gradient → stars → mountains/bamboo/grass → panda → pads.
-
-    Panda lowered — bear_y = 35 (was 40/45).
-
-    bear_beat counter — increments only on actual string presses.
-
-    bg_counter reset — on chord change, so the color transition starts immediately.
+- Dancing panda (Kita) — 4 sprite frames, animation triggers on each string strum (one press = next frame).
+- Forest background — bamboo, mountains, and grass overlay (BG_FOREST, 240×144). Transparent pixels (sky) are skipped.
+- Gradient sky — smooth blend from a light top color to the current chord color.
+- Chord-reactive background colors — 11 bright pastel shades (CHORD_BG). Transitions “through white” (snap to white → fade to chord color) to avoid muddy mixing.
+- Stars in the sky — 32 randomly placed stars (deterministic PRNG). Each string lights two stars; stars fade out slowly.
+- Layered rendering — correct draw order: sky gradient → stars → mountains/bamboo/grass → panda → pads.
+- Panda lowered — bear_y = 35 (was 40/45).
+- bear_beat counter — increments only on actual string presses.
+- bg_counter reset — on chord change, so the color transition starts immediately.
 
 🛠 Technical notes
 
-    BG_TRANSPARENT = 0xB81F — “magic pink” (transparent color in the sprite).
-
-    BG_SKY_TOP — top sky color (adjustable).
-
-    BG_TINT — how much chord color tints the bamboo overlay (0..16).
-
-    BEAR_FRAME_COUNT = 4, BEAR_W = 64, BEAR_H = 64.
-
-    N_STARS = 32, star_map[] — string-to-star mapping (xorshift32 shuffle).
-
-    draw_sky_gradient() + draw_overlay() — split background into layers.
-
-    bg_fade_step() — smooth transition with “snap to white” on chord change.
+- BG_TRANSPARENT = 0xB81F — “magic pink” (transparent color in the sprite).
+- BG_SKY_TOP — top sky color (adjustable).
+- BG_TINT — how much chord color tints the bamboo overlay (0..16).
+- BEAR_FRAME_COUNT = 4, BEAR_W = 64, BEAR_H = 64.
+- N_STARS = 32, star_map[] — string-to-star mapping (xorshift32 shuffle).
+- draw_sky_gradient() + draw_overlay() — split background into layers.
+- bg_fade_step() — smooth transition with “snap to white” on chord change.
 
 📋 Files changed / added
 
-    firmware/src/app/ui.c — main logic (panda, stars, background, chord colors).
-
-    firmware/src/app/bg_forest.c (or .h) — BG_FOREST[240*144] array (RGB565, Piskel export).
-
-    firmware/src/app/bear_sprites.c — four panda frames (already present).
-
-    host/omni_host.c and firmware/src/main.c — added #include for bg_forest.c.
+- firmware/src/app/ui.c — main logic (panda, stars, background, chord colors).
+- firmware/src/app/bg_forest.c (or .h) — BG_FOREST[240*144] array (RGB565, Piskel export).
+- firmware/src/app/bear_sprites.c — four panda frames (already present).
+- host/omni_host.c and firmware/src/main.c — added #include for bg_forest.c.
 
 🎨 Tweakable settings
 
-    BG_SKY_TOP — sky color (currently RGB(20, 30, 70); try RGB(240, 240, 240) for a brighter look).
+- BG_SKY_TOP — sky color (currently RGB(20, 30, 70); try RGB(240, 240, 240) for a brighter look).
+- BG_TINT — bamboo tint strength (currently 2; try 3..5).
+- CHORD_BG[] — chord color palette (11 colors).
+- bear_y — panda position (currently 35).
 
-    BG_TINT — bamboo tint strength (currently 2; try 3..5).
-
-    CHORD_BG[] — chord color palette (11 colors).
-
-    bear_y — panda position (currently 35).
-
+---------------------------------------------------------------------------
 # FoMni for the M-VAVE FM-1
 
 FoMni turns the M-VAVE FM-1 into a chord harp inspired by the Suzuki Omnichord. The 16 white
