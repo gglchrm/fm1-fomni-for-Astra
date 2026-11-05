@@ -40,6 +40,63 @@ static const uint8_t BLACK_K[NPADS] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};
 #define K_RHY RGB(232, 88, 128)
 #define K_RHY_T RGB(246, 206, 218)
 
+static const uint16_t CHORD_BG[NPADS] = {
+    RGB(255, 180, 200),  /* 0:  ярко-розовый */
+    RGB(160, 255, 190),  /* 1:  ярко-мятный */
+    RGB(170, 190, 255),  /* 2:  ярко-лавандовый */
+    RGB(255, 230, 160),  /* 3:  ярко-кремовый */
+    RGB(150, 220, 255),  /* 4:  ярко-голубой */
+    RGB(255, 190, 170),  /* 5:  ярко-персиковый */
+    RGB(170, 255, 170),  /* 6:  ярко-зелёный */
+    RGB(210, 180, 255),  /* 7:  ярко-сиреневый */
+    RGB(255, 220, 150),  /* 8:  ярко-медовый */
+    RGB(150, 240, 230),  /* 9:  ярко-аквамарин */
+    RGB(255, 170, 220),  /* 10: ярко-розовый */
+};
+
+extern const uint16_t Layer_1_kita_1[];
+extern const uint16_t Layer_1_kita_2[];
+extern const uint16_t Layer_1_kita_3[];
+extern const uint16_t Layer_1_kita_4[];
+
+/* ---- Background ---- */
+extern const uint16_t BG_FOREST[240 * 144];
+#define BG_W 240
+#define BG_H 144
+#define BG_TRANSPARENT 0xb81f
+#define BG_SKY_TOP RGB(90, 90, 90)   /* ночное небо (можете поменять) */
+#define BG_TINT 2                     /* 0..16: сколько цвета аккорда в бамбуке (5 ≈ 30%) */
+
+static const uint16_t* const BEAR_FRAMES[] = {
+    Layer_1_kita_1, Layer_1_kita_2, Layer_1_kita_3, Layer_1_kita_4
+};
+#define BEAR_FRAME_COUNT 4
+#define BEAR_W 64
+#define BEAR_H 64
+
+static uint16_t bg_cur = K_BG;
+static uint16_t bg_target = K_BG;
+static uint32_t bg_counter = 0;  
+static uint32_t bear_beat = 0;  
+
+#define N_STARS 32
+static struct {
+    uint8_t brightness;
+    int16_t x, y;
+} stars[N_STARS];
+static uint8_t star_map[N_STARS];   /* star_map[i] = индекс звезды для струны i (i < 16) */
+static int stars_init_done = 0;
+
+/* xorshift32: детерминированный PRNG, сид фиксированный */
+static uint32_t star_seed = 0x9E3779B9u;   /* 32-битное золотое сечение :) */
+static uint32_t star_rnd(void)
+{
+    star_seed ^= star_seed << 13;
+    star_seed ^= star_seed >> 17;
+    star_seed ^= star_seed << 5;
+    return star_seed;
+}
+
 static struct {
     uint8_t view;
     uint32_t btn, keys, btn_used;
@@ -437,8 +494,10 @@ static void input(void)
     ch = keys ^ ui.keys;
     ui.keys = keys;
     for (i = 0; i < OM_NSTR; i++)              /* strings first: a strum is the fastest thing here */
-        if ((ch & keys) >> WHITE_K[i] & 1u)
+        if ((ch & keys) >> WHITE_K[i] & 1u) {
             om_strum((int)i);
+            bear_beat++;
+        }
     for (i = 0; i < NPADS; i++)
         if (ch >> BLACK_K[i] & 1u) {
             if (keys >> BLACK_K[i] & 1u)
@@ -569,6 +628,24 @@ static uint16_t mix(uint16_t a, uint16_t b, int t)   /* t 0..16: a -> b */
     return (uint16_t)(r << 11 | g << 5 | bl);
 }
 
+static void bg_fade_step(void)
+{
+    if (bg_cur == bg_target)
+        return;
+    bg_counter++;
+    if (bg_counter % 2 != 0)
+        return;
+    bg_cur = mix(bg_cur, bg_target, 2);
+
+    /* Если остались считанные единицы — «дотягиваем» до цели,
+     * чтобы не накапливать ошибку округления. */
+    int r = ((bg_cur >> 11) - (bg_target >> 11));
+    int g = (((bg_cur >> 5) & 63) - ((bg_target >> 5) & 63));
+    int b = ((bg_cur & 31) - (bg_target & 31));
+    if (r * r + g * g + b * b <= 2)   /* почти совпали */
+        bg_cur = bg_target;
+}
+
 static void draw_strings(int32_t y0, int32_t h)
 {
     int s;
@@ -627,6 +704,52 @@ static void draw_pads(int32_t y0)
     }
 }
 
+/* Draw a 32x32 RGB565 sprite with transparent (0x0000) pixels skipped.
+ * cv_px stores byte-swapped pixels, so we swap16() before writing. */
+static void draw_bear_sprite(int32_t x, int32_t y, const uint16_t *sprite)
+{
+    int32_t row, col;
+    for (row = 0; row < BEAR_H; row++) {
+        for (col = 0; col < BEAR_W; col++) {
+            uint16_t c = sprite[row * BEAR_W + col];
+            if (c == 0xD81F)
+                continue;                        /* transparent */
+            int32_t px = x + col, py = y + row;
+            if (px >= 0 && px < (int32_t)cv_w && py >= 0 && py < (int32_t)cv_h)
+                cv_px[py * (int32_t)cv_w + px] = swap16(c);
+        }
+    }
+}
+
+/* 1. Градиент неба: от BG_SKY_TOP (сверху) к bg_cur (снизу). */
+static void draw_sky_gradient(uint16_t chord_tint)
+{
+    int y, x;
+    for (y = 0; y < BG_H; y++) {
+        int t = (y * 16) / (BG_H - 1);
+        uint16_t grad = mix(BG_SKY_TOP, chord_tint, t);
+        uint16_t grad_s = swap16(grad);
+        for (x = 0; x < BG_W; x++)
+            cv_px[y * BG_W + x] = grad_s;
+    }
+}
+
+/* 2. Оверлей: горы, бамбук, трава. Прозрачные пиксели (0xB81F) пропускаем,
+ *    непрозрачные рисуем КАК ЕСТЬ (без смешивания с фоном). */
+static void draw_overlay(void)
+{
+    int y, x;
+    for (y = 0; y < BG_H; y++) {
+        const uint16_t *row = &BG_FOREST[y * BG_W];
+        for (x = 0; x < BG_W; x++) {
+            uint16_t c = row[x];
+            if (c == BG_TRANSPARENT)
+                continue;
+            cv_px[y * BG_W + x] = swap16(c);
+        }
+    }
+}
+
 static void draw_main(void)
 {
     char name[16], notes[24];
@@ -639,10 +762,23 @@ static void draw_main(void)
         h = hash(h, proj.pad_root[s] | proj.pad_type[s] << 4);
     if (ui.view == V_RHYTHM)
         h = hash(hash(h, om_playing ? om_step : 255u), (uint32_t)proj.par[P_RHYTHM]);
+    h = hash(h, ui.frame);
     if (h == ui.sig[1])
         return;
     ui.sig[1] = h;
-    cv_begin(240, MAIN_H, K_BG);
+    /* Background tinted by the pressed chord button (pastel palette) */
+
+    if (ui.pad >= 0 && ui.pad < NPADS) {
+        uint16_t new_target = CHORD_BG[ui.pad];
+        if (new_target != bg_target) {
+            bg_target = new_target;
+            bg_cur = RGB(255, 255, 255);   /* старт от белого */
+            bg_counter = 0;   /* сброс при смене цели */
+        }
+    }
+    bg_fade_step();
+    cv_begin(240, MAIN_H, bg_cur);
+    draw_sky_gradient(bg_cur);   /* небо */
     chord_name(ui.root, ui.type, name);
     {   /* the chord: its name, big, and its notes */
         uint8_t hp[OM_NSTR], cn[OM_NCHORD], bn;
@@ -664,10 +800,58 @@ static void draw_main(void)
         notes[k] = 0;
         cv_text(240 - 12 - text_w(&FONT_S, notes), 14, &FONT_S, notes, K_DIM);
     }
+    draw_overlay(); 
     if (ui.view == V_RHYTHM)
         draw_rhythm(44, 62);
     else
-        draw_strings(44, 54);
+
+        // draw_strings(44, 54);
+        /* Dancing bear: frame changes every ~150 ms */
+    {
+        uint32_t bear_frame = bear_beat % BEAR_FRAME_COUNT;
+        int32_t bear_x = 88;   /* (240 - 32) / 2 */
+        int32_t bear_y = 47;    /* чуть выше центра главной области */
+        draw_bear_sprite(bear_x, bear_y, BEAR_FRAMES[bear_frame]);
+    }
+    /* ---- Звёзды на небе ---- */
+    int si;
+    if (!stars_init_done) {
+        for (si = 0; si < N_STARS; si++) {
+            /* чистый PRNG: хаотично по всему небу */
+            stars[si].x = 6 + (int16_t)(star_rnd() % 228u);
+            stars[si].y = 4 + (int16_t)(star_rnd() % 40u);   /* только верхняя часть (небо) */
+            stars[si].brightness = 0;
+        }
+        /* перемешивание: какая струна → какая звезда (первые 16 звёзд) */
+        for (si = 0; si < N_STARS; si++)
+            star_map[si] = (uint8_t)si;
+        for (si = N_STARS - 1; si > 0; si--) {
+            uint32_t j = star_rnd() % ((uint32_t)si + 1u);
+            uint8_t tmp = star_map[si];
+            star_map[si] = star_map[j];
+            star_map[j] = tmp;
+        }
+        stars_init_done = 1;
+    }
+/* --- струна зажигает свою (перемешанную) звезду --- */
+    for (si = 0; si < OM_NSTR; si++) {         /* 16 струн */
+        uint8_t t1 = star_map[si];
+        uint8_t t2 = star_map[(si + 8) % N_STARS];   /* вторая звезда — через 8 */
+        if (om_str_level[si] > 0.1f) {
+            stars[t1].brightness = 255;
+            stars[t2].brightness = 255;
+        } else {
+            if (stars[t1].brightness > 0) stars[t1].brightness -= 3;
+            if (stars[t2].brightness > 0) stars[t2].brightness -= 3;
+        }
+    }
+
+    for (si = 0; si < N_STARS; si++) {
+    if (stars[si].brightness > 0) {
+        uint16_t c = mix(RGB(40, 40, 120), RGB(255, 255, 255), stars[si].brightness / 16);
+        cv_rect(stars[si].x, stars[si].y, 2, 2, c);
+    }
+}
     draw_pads(112);
     cv_blit(0, MAIN_Y);
 }

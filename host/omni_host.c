@@ -21,6 +21,9 @@
  *   expect WHAT VALUE            check state: exit 1 on mismatch; VALUE "<N" / ">N" is a bound
  *   reboot                       re-run boot from the simulated flash (persistence test)
  */
+
+#define _POSIX_C_SOURCE 200809L
+
 #define OM_HOST 1
 #include <stdio.h>
 #include <stdlib.h>
@@ -135,6 +138,8 @@ uint32_t plat_xruns(void) { return 0; }
 /* -------------------------------------------------------------- app --- */
 #include "../firmware/src/app/app.h"
 #include "../firmware/src/app/project.c"
+#include "../firmware/src/app/bear_sprites.c"
+#include "../firmware/src/app/bg_sprite.c"
 #include "../firmware/src/app/ui.c"
 
 /* ---------------------------------------------------------- outputs --- */
