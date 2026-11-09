@@ -1,5 +1,7 @@
 # My version for Astra. Happy Birthday, daughter! <3
 
+![](image_2026-11-06_11-29-09.png)
+
 🐼 What's new in this fork
 - Dancing panda (Kita) — 4 sprite frames, animation triggers on each string strum (one press = next frame).
 - Forest background — bamboo, mountains, and grass overlay (`BG_FOREST`, 240×144). Transparent pixels (sky) are skipped.
